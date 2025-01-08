@@ -1,117 +1,129 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   SafeAreaView,
-  ScrollView,
-  StatusBar,
   StyleSheet,
+  TouchableOpacity,
   Text,
-  useColorScheme,
   View,
+  Alert,
 } from 'react-native';
+import RNFS from 'react-native-fs';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {colors, typography, spacing} from './src/styles/theme';
+import PDFViewer from './src/components/PDFViewer';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+// Sample PDF URL
+const SAMPLE_PDF_URL =
+  'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+const App = () => {
+  const [pdfUri, setPdfUri] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+  useEffect(() => {
+    checkCachedPDF();
+  }, []);
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  const checkCachedPDF = async () => {
+    try {
+      const cachedUri = await AsyncStorage.getItem('cachedPdfUri');
+      if (cachedUri) {
+        const exists = await RNFS.exists(cachedUri);
+        if (exists) {
+          setPdfUri(cachedUri);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking cached PDF:', error);
+    }
   };
 
+  const downloadAndCachePDF = async () => {
+    setIsLoading(true);
+    try {
+      // Create a unique filename
+      const filename = 'sample.pdf';
+      const localPath = `${RNFS.DocumentDirectoryPath}/${filename}`;
+
+      // Download the PDF
+      await RNFS.downloadFile({
+        fromUrl: SAMPLE_PDF_URL,
+        toFile: localPath,
+      }).promise;
+
+      // Cache the URI
+      await AsyncStorage.setItem('cachedPdfUri', localPath);
+      setPdfUri(localPath);
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      Alert.alert('Error', 'Failed to download PDF');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClosePDF = () => {
+    setPdfUri(null);
+  };
+
+  if (pdfUri) {
+    return <PDFViewer uri={pdfUri} onClose={handleClosePDF} />;
+  }
+
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>PDF Viewer Demo</Text>
+        <TouchableOpacity
+          style={[styles.button, isLoading && styles.buttonDisabled]}
+          onPress={downloadAndCachePDF}
+          disabled={isLoading}>
+          <Text style={styles.buttonText}>
+            {isLoading ? 'Loading...' : 'Load Sample PDF'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
-  sectionTitle: {
-    fontSize: 24,
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  title: {
+    fontSize: typography.title1.fontSize,
+    lineHeight: typography.title1.lineHeight,
+    letterSpacing: typography.title1.letterSpacing,
     fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.xl,
+    textAlign: 'center',
   },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
+  button: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 8,
+    minWidth: 200,
+    alignItems: 'center',
   },
-  highlight: {
-    fontWeight: '700',
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    fontSize: typography.body.fontSize,
+    lineHeight: typography.body.lineHeight,
+    letterSpacing: typography.body.letterSpacing,
+    fontWeight: '600',
+    color: colors.background,
   },
 });
 
