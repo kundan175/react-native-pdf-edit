@@ -141,6 +141,12 @@ const PDFViewer: React.FC<PDFViewerProps> = ({uri, onClose}) => {
     loadAnnotations();
   };
 
+  const handleRemoveAnnotation = (id: string) => {
+    const updatedAnnotations = annotations.filter(anno => anno.id !== id);
+    setAnnotations(updatedAnnotations);
+    setSelectedAnnotation(null);
+  };
+
   const renderAnnotations = () => {
     return annotations
       .filter(anno => anno.position.page === currentPage)
@@ -189,6 +195,11 @@ const PDFViewer: React.FC<PDFViewerProps> = ({uri, onClose}) => {
           onTouchEnd={() => {
             setIsDragging(false);
           }}>
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => handleRemoveAnnotation(anno.id)}>
+            <Text style={styles.removeButtonText}>×</Text>
+          </TouchableOpacity>
           {anno.type === 'text' ? (
             <TextInput
               style={styles.annotationText}
@@ -245,6 +256,26 @@ const PDFViewer: React.FC<PDFViewerProps> = ({uri, onClose}) => {
 };
 
 const styles = StyleSheet.create({
+  removeButton: {
+    position: 'absolute',
+    right: -8,
+    top: -8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+    ...shadows.small,
+  },
+  removeButtonText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: 'bold',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
   annotation: {
     position: 'absolute',
     minWidth: 100,
