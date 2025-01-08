@@ -11,6 +11,9 @@ import {
   Image,
   Alert,
   ImageStyle,
+  PanResponder,
+  GestureResponderEvent,
+  PanResponderGestureState,
 } from 'react-native';
 import Pdf from 'react-native-pdf';
 import RNFS from 'react-native-fs';
@@ -27,6 +30,7 @@ interface Annotation {
     y: number;
     page: number;
   };
+  scale: number;
 }
 
 interface PDFViewerProps {
@@ -44,6 +48,10 @@ const PDFViewer: React.FC<PDFViewerProps> = ({uri, onClose}) => {
     useState<Annotation | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({x: 0, y: 0});
+  const [initialTouchDistance, setInitialTouchDistance] = useState<
+    number | null
+  >(null);
+  const [initialScale, setInitialScale] = useState(1);
   const pdfRef = useRef(null);
 
   const loadAnnotations = useCallback(async () => {
@@ -85,6 +93,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({uri, onClose}) => {
         y: 100,
         page: currentPage,
       },
+      scale: 1,
     };
     setAnnotations([...annotations, newAnnotation]);
     setSelectedAnnotation(newAnnotation);
@@ -109,6 +118,7 @@ const PDFViewer: React.FC<PDFViewerProps> = ({uri, onClose}) => {
             y: 100,
             page: currentPage,
           },
+          scale: 1,
         };
         setAnnotations([...annotations, newAnnotation]);
         setSelectedAnnotation(newAnnotation);
@@ -147,81 +157,125 @@ const PDFViewer: React.FC<PDFViewerProps> = ({uri, onClose}) => {
     setSelectedAnnotation(null);
   };
 
+  const getDistance = (touches: any[]) => {
+    if (touches.length < 2) return 0;
+    const dx = touches[0].pageX - touches[1].pageX;
+    const dy = touches[0].pageY - touches[1].pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
   const renderAnnotations = () => {
     return annotations
       .filter(anno => anno.position.page === currentPage)
-      .map(anno => (
-        <View
-          key={anno.id}
-          style={[
-            styles.annotation,
-            {
-              left: anno.position.x,
-              top: anno.position.y,
-            },
-            isEditing && {
-              borderWidth: 1,
-              borderColor: colors.primary,
-              borderStyle: 'dashed',
-            },
-          ]}
-          onTouchStart={e => {
+      .map(anno => {
+        const panResponder = PanResponder.create({
+          onStartShouldSetPanResponder: () => isEditing,
+          onMoveShouldSetPanResponder: () => isEditing,
+          onPanResponderGrant: (e: GestureResponderEvent) => {
             if (!isEditing) return;
-            const {pageX, pageY} = e.nativeEvent;
-            setDragOffset({
-              x: pageX - anno.position.x,
-              y: pageY - anno.position.y,
-            });
-            setSelectedAnnotation(anno);
-            setIsDragging(true);
-          }}
-          onTouchMove={e => {
-            if (!isDragging || !isEditing) return;
-            const {pageX, pageY} = e.nativeEvent;
-            const updated = annotations.map(a =>
-              a.id === selectedAnnotation?.id
-                ? {
-                    ...a,
-                    position: {
-                      ...a.position,
-                      x: pageX - dragOffset.x,
-                      y: pageY - dragOffset.y,
-                    },
-                  }
-                : a,
-            );
-            setAnnotations(updated);
-          }}
-          onTouchEnd={() => {
+
+            const touches = e.nativeEvent.touches;
+            if (touches.length === 2) {
+              // Pinch start
+              const distance = getDistance(touches);
+              setInitialTouchDistance(distance);
+              setInitialScale(anno.scale || 1);
+            } else if (touches.length === 1) {
+              // Drag start
+              const {pageX, pageY} = e.nativeEvent;
+              setDragOffset({
+                x: pageX - anno.position.x,
+                y: pageY - anno.position.y,
+              });
+              setSelectedAnnotation(anno);
+              setIsDragging(true);
+            }
+          },
+          onPanResponderMove: (e: GestureResponderEvent) => {
+            if (!isEditing) return;
+
+            const touches = e.nativeEvent.touches;
+            if (touches.length === 2 && initialTouchDistance) {
+              // Pinch move
+              const distance = getDistance(touches);
+              const scale = Math.max(
+                0.5,
+                Math.min(3, (initialScale * distance) / initialTouchDistance),
+              );
+
+              const updated = annotations.map(a =>
+                a.id === anno.id ? {...a, scale} : a,
+              );
+              setAnnotations(updated);
+            } else if (touches.length === 1 && isDragging) {
+              // Drag move
+              const {pageX, pageY} = e.nativeEvent;
+              const updated = annotations.map(a =>
+                a.id === selectedAnnotation?.id
+                  ? {
+                      ...a,
+                      position: {
+                        ...a.position,
+                        x: pageX - dragOffset.x,
+                        y: pageY - dragOffset.y,
+                      },
+                    }
+                  : a,
+              );
+              setAnnotations(updated);
+            }
+          },
+          onPanResponderRelease: () => {
             setIsDragging(false);
-          }}>
-          <TouchableOpacity
-            style={styles.removeButton}
-            onPress={() => handleRemoveAnnotation(anno.id)}>
-            <Text style={styles.removeButtonText}>×</Text>
-          </TouchableOpacity>
-          {anno.type === 'text' ? (
-            <TextInput
-              style={styles.annotationText}
-              value={anno.content}
-              onChangeText={text => {
-                const updated = annotations.map(a =>
-                  a.id === anno.id ? {...a, content: text} : a,
-                );
-                setAnnotations(updated);
-              }}
-              multiline
-              editable={isEditing}
-            />
-          ) : (
-            <Image
-              source={{uri: anno.content}}
-              style={styles.annotationImage as ImageStyle}
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      ));
+            setInitialTouchDistance(null);
+          },
+        });
+
+        return (
+          <View
+            key={anno.id}
+            {...panResponder.panHandlers}
+            style={[
+              styles.annotation,
+              {
+                left: anno.position.x,
+                top: anno.position.y,
+                transform: [{scale: anno.scale || 1}],
+              },
+              isEditing && {
+                borderWidth: 1,
+                borderColor: colors.primary,
+                borderStyle: 'dashed',
+              },
+            ]}>
+            <TouchableOpacity
+              style={styles.removeButton}
+              onPress={() => handleRemoveAnnotation(anno.id)}>
+              <Text style={styles.removeButtonText}>×</Text>
+            </TouchableOpacity>
+            {anno.type === 'text' ? (
+              <TextInput
+                style={styles.annotationText}
+                value={anno.content}
+                onChangeText={text => {
+                  const updated = annotations.map(a =>
+                    a.id === anno.id ? {...a, content: text} : a,
+                  );
+                  setAnnotations(updated);
+                }}
+                multiline
+                editable={isEditing}
+              />
+            ) : (
+              <Image
+                source={{uri: anno.content}}
+                style={styles.annotationImage as ImageStyle}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+        );
+      });
   };
 
   return (
